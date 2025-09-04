@@ -1,0 +1,24 @@
+# Log files and runtime data
+logs/
+*.log
+
+# Lock files
+*.lock
+
+# Temporary files
+/tmp/
+*.tmp
+*~
+
+# macOS
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Backup files
+*.backup
+*.bak
