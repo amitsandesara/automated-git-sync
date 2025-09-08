@@ -618,18 +618,18 @@ main() {
         
         if [[ "$skip" == "true" ]]; then
             log DEBUG "Skipping directory: $dir_name"
-            ((skipped_repos++))
+            skipped_repos=$((skipped_repos + 1))
             continue
         fi
         
-        ((total_repos++))
+        total_repos=$((total_repos + 1))
         
         echo "$(printf '%.0s-' {1..80})"
         
         if process_repo "$dir"; then
-            ((processed_repos++))
+            processed_repos=$((processed_repos + 1))
         else
-            ((failed_repos++))
+            failed_repos=$((failed_repos + 1))
             log ERROR "Failed to process repository: $dir_name"
         fi
         

@@ -22,3 +22,6 @@ logs/
 # Backup files
 *.backup
 *.bak
+
+# Claude Code files
+.claude/

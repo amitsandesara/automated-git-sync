@@ -62,7 +62,7 @@ log_sync() {
             break
         fi
         sleep 0.1
-        ((attempts++))
+        attempts=$((attempts + 1))
     done
     
     # Output the message
@@ -486,7 +486,7 @@ wait_for_batch() {
         if timeout "$JOB_TIMEOUT" tail --pid="$pid" -f /dev/null 2>/dev/null; then
             # Job completed within timeout - collect exit status
             wait "$pid" 2>/dev/null || true
-            ((completed++))
+            completed=$((completed + 1))
             
             # ====================================================================
             # Result Collection and Status Tracking
@@ -664,10 +664,8 @@ main() {
     }
     
     # Create logs directory if it doesn't exist
-    if [[ "$DRY_RUN" != "true" ]]; then
-        mkdir -p "$(dirname "$LOG_FILE")"
-        mkdir -p "/tmp/git_update_jobs_$$"
-    fi
+    mkdir -p "$(dirname "$LOG_FILE")"
+    mkdir -p "/tmp/git_update_jobs_$$"
     
     # Collect all repositories to process
     local repos_to_process=()
@@ -689,7 +687,7 @@ main() {
         
         if [[ "$skip" == "true" ]]; then
             log DEBUG "Skipping directory: $dir_name"
-            ((skipped_repos++))
+            skipped_repos=$((skipped_repos + 1))
             continue
         fi
         
@@ -722,7 +720,7 @@ main() {
         job_repos+=("$repo_name")
         job_logs+=("$job_log")
         
-        ((processed_count++))
+        processed_count=$((processed_count + 1))
         
         # If batch is full or this is the last repo, wait for completion
         if [[ ${#job_pids[@]} -eq $BATCH_SIZE ]] || [[ $processed_count -eq $total_repos ]]; then
@@ -741,10 +739,10 @@ main() {
     
     for repo in "${!repo_results[@]}"; do
         case "${repo_results[$repo]}" in
-            "SUCCESS") ((successful++)) ;;
-            "FAILED") ((failed++)) ;;
-            "SKIPPED") ((skipped++)) ;;
-            "TIMEOUT") ((timeouts++)) ;;
+            "SUCCESS") successful=$((successful + 1)) ;;
+            "FAILED") failed=$((failed + 1)) ;;
+            "SKIPPED") skipped=$((skipped + 1)) ;;
+            "TIMEOUT") timeouts=$((timeouts + 1)) ;;
         esac
     done
     

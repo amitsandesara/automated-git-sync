@@ -14,10 +14,10 @@ NOTIFICATION_LOG="$LOG_DIR/scheduled_updates.log"
 PARALLEL_SCRIPT="$SCRIPT_DIR/update_local_repos_parallel.sh"
 REGULAR_SCRIPT="$SCRIPT_DIR/update_local_repos.sh"
 
-# Default to parallel script, fallback to regular if not available
-UPDATE_SCRIPT="${UPDATE_SCRIPT:-$PARALLEL_SCRIPT}"
-if [[ ! -x "$UPDATE_SCRIPT" ]] && [[ -x "$REGULAR_SCRIPT" ]]; then
-    UPDATE_SCRIPT="$REGULAR_SCRIPT"
+# Default to regular script, fallback to parallel if not available
+UPDATE_SCRIPT="${UPDATE_SCRIPT:-$REGULAR_SCRIPT}"
+if [[ ! -x "$UPDATE_SCRIPT" ]] && [[ -x "$PARALLEL_SCRIPT" ]]; then
+    UPDATE_SCRIPT="$PARALLEL_SCRIPT"
 fi
 
 # Colors for output
@@ -226,11 +226,11 @@ run_update() {
     local temp_log="/tmp/git_update_output_$$.log"
     local exit_code=0
     
-    log_scheduled INFO "Executing git update with 3 parallel jobs..."
+    log_scheduled INFO "Executing git update script..."
     
-    # Run the actual update script with parallel processing
+    # Run the actual update script
     # Capture both stdout and stderr for complete error reporting
-    if "$UPDATE_SCRIPT" --batch 3 > "$temp_log" 2>&1; then
+    if "$UPDATE_SCRIPT" > "$temp_log" 2>&1; then
         
         # ========================================================================
         # Success Path: Update Completed Successfully  
