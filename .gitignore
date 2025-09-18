@@ -13,15 +13,6 @@ logs/
 # macOS
 .DS_Store
 
-# Editor files
-*.swp
-*.swo
-.vscode/
-.idea/
 
-# Backup files
-*.backup
-*.bak
-
-# Claude Code files
-.claude/
+# env files
+.env

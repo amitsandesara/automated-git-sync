@@ -4,20 +4,42 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CODE_DIR="${CODE_DIR:-$HOME/code}"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 LOCK_FILE="$SCRIPT_DIR/logs/git_update.lock"
 STATUS_FILE="$SCRIPT_DIR/logs/git_update_status.json"
 LOG_DIR="$SCRIPT_DIR/logs"
 NOTIFICATION_LOG="$LOG_DIR/scheduled_updates.log"
 
-# Script paths
-PARALLEL_SCRIPT="$SCRIPT_DIR/update_local_repos_parallel.sh"
-REGULAR_SCRIPT="$SCRIPT_DIR/update_local_repos.sh"
+# Source configuration file if it exists
+if [[ -f "$CONFIG_FILE" ]]; then
+    echo "[INFO] Loading configurations from $CONFIG_FILE"
+    source "$CONFIG_FILE"
+else
+    echo "[ERROR] Configuration file not found: $CONFIG_FILE. Please create an .env file with required settings."
+    exit 1
+fi
 
-# Default to regular script, fallback to parallel if not available
-UPDATE_SCRIPT="${UPDATE_SCRIPT:-$REGULAR_SCRIPT}"
-if [[ ! -x "$UPDATE_SCRIPT" ]] && [[ -x "$PARALLEL_SCRIPT" ]]; then
-    UPDATE_SCRIPT="$PARALLEL_SCRIPT"
+# Check for required cron schedule variables
+if [[ -z "$PRIMARY_CRON_SCHEDULE" ]]; then
+    echo "[ERROR] PRIMARY_CRON_SCHEDULE is not defined in $CONFIG_FILE. Please set this variable."
+    exit 1
+fi
+
+if [[ -z "$FALLBACK_CRON_SCHEDULE" ]]; then
+    echo "[ERROR] FALLBACK_CRON_SCHEDULE is not defined in $CONFIG_FILE. Please set this variable."
+    exit 1
+fi
+
+# Check for required CODE_DIR variable
+if [[ -z "$CODE_DIR" ]]; then
+    echo "[ERROR] CODE_DIR is not defined in $CONFIG_FILE. Please set this variable."
+    exit 1
+fi
+
+# Check for required LOG_RETENTION_DAYS variable
+if [[ -z "$LOG_RETENTION_DAYS" ]]; then
+    echo "[ERROR] LOG_RETENTION_DAYS is not defined in $CONFIG_FILE. Please set this variable."
+    exit 1
 fi
 
 # Colors for output
@@ -27,24 +49,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Logging function
-log_scheduled() {
-    local level="$1"
-    shift
-    local message="$*"
-    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    
-    case "$level" in
-        ERROR) echo -e "${RED}[ERROR]${NC} $message" ;;
-        WARN)  echo -e "${YELLOW}[WARN]${NC} $message" ;;
-        INFO)  echo -e "${GREEN}[INFO]${NC} $message" ;;
-        DEBUG) echo -e "${BLUE}[DEBUG]${NC} $message" ;;
-    esac
-    
-    # Also log to notification file
-    mkdir -p "$LOG_DIR"
-    echo "[$timestamp] [$level] $message" >> "$NOTIFICATION_LOG"
-}
+# Script path
+REGULAR_SCRIPT="$SCRIPT_DIR/update_local_repos.sh"
+
+# Always use regular script
+UPDATE_SCRIPT="${UPDATE_SCRIPT:-$REGULAR_SCRIPT}"
 
 # Check if another instance is running
 check_lock() {
@@ -54,10 +63,10 @@ check_lock() {
         
         # Check if the process is still running
         if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
-            log_scheduled WARN "Another git update is already running (PID: $lock_pid)"
+            echo "[WARN] Another git update is already running (PID: $lock_pid)"
             return 1
         else
-            log_scheduled INFO "Removing stale lock file"
+            echo "[INFO] Removing stale lock file"
             rm -f "$LOCK_FILE"
         fi
     fi
@@ -123,7 +132,7 @@ check_todays_status() {
     fi
     
     if [[ "$last_success_date" == "$today" ]] && [[ "$last_status" == "success" ]]; then
-        log_scheduled INFO "Today's git update already completed successfully"
+        echo "[INFO] Today's git update already completed successfully"
         return 0  # Already successful today
     fi
     
@@ -138,13 +147,13 @@ send_notification() {
     
     case "$status" in
         "success")
-            log_scheduled INFO "✅ Git repositories updated successfully ($run_type run)"
+            echo "[INFO] ✅ Git repositories updated successfully ($run_type run)"
             ;;
         "failed")
-            log_scheduled ERROR "❌ Git repository update failed ($run_type run): $message"
+            echo "[ERROR] ❌ Git repository update failed ($run_type run): $message"
             ;;
         "skipped")
-            log_scheduled INFO "⏭️  Git repository update skipped ($run_type run): $message"
+            echo "[INFO] ⏭️  Git repository update skipped ($run_type run): $message"
             ;;
     esac
     
@@ -167,7 +176,7 @@ send_notification() {
 # or manually for testing.
 #
 # Parameters:
-#   $1: run_type - Type of run: "scheduled" (8 AM), "fallback" (9:30 AM), or "test"
+#   $1: run_type - Type of run: "scheduled" (primary), "fallback" (secondary), or "test"
 #
 # Returns:
 #   0 on success, non-zero on failure
@@ -178,12 +187,13 @@ send_notification() {
 #   3. Execute the actual git update script
 #   4. Record results and send notifications
 #   5. Clean up temporary files
+#   6. Clean up old logs by default
 run_update() {
     local run_type="$1"  # "scheduled" or "fallback"
     local start_time=$(date "+%Y-%m-%d %H:%M:%S")
     
-    log_scheduled INFO "Starting $run_type git repository update"
-    log_scheduled INFO "Using script: $UPDATE_SCRIPT"
+    echo "[INFO] Starting $run_type git repository update"
+    echo "[INFO] Using script: $UPDATE_SCRIPT"
     
     # ============================================================================
     # STEP 1: Pre-flight Validation
@@ -193,7 +203,7 @@ run_update() {
     # This prevents silent failures when script paths are wrong
     if [[ ! -x "$UPDATE_SCRIPT" ]]; then
         local error_msg="Update script not found or not executable: $UPDATE_SCRIPT"
-        log_scheduled ERROR "$error_msg"
+        echo "[ERROR] $error_msg"
         update_status "failed" "$run_type" "$start_time" "$(date "+%Y-%m-%d %H:%M:%S")" "$error_msg"
         send_notification "failed" "$error_msg" "$run_type"
         return 1
@@ -203,17 +213,17 @@ run_update() {
     # STEP 2: Fallback Logic Implementation
     # ============================================================================
     
-    # For fallback runs (9:30 AM), check if today's update already succeeded
+    # For fallback runs, check if today's update already succeeded
     # This prevents duplicate work and unnecessary resource usage
     if [[ "$run_type" == "fallback" ]]; then
         if check_todays_status; then
             local skip_msg="Fallback skipped - today's update already successful"
-            log_scheduled INFO "$skip_msg"
+            echo "[INFO] $skip_msg"
             update_status "skipped" "$run_type" "$start_time" "$(date "+%Y-%m-%d %H:%M:%S")" "$skip_msg"
             send_notification "skipped" "$skip_msg" "$run_type"
             return 0
         else
-            log_scheduled INFO "8 AM run failed or didn't complete - proceeding with fallback"
+            echo "[INFO] Primary run failed or didn't complete - proceeding with fallback"
         fi
     fi
     
@@ -226,7 +236,7 @@ run_update() {
     local temp_log="/tmp/git_update_output_$$.log"
     local exit_code=0
     
-    log_scheduled INFO "Executing git update script..."
+    echo "[INFO] Executing git update script..."
     
     # Run the actual update script
     # Capture both stdout and stderr for complete error reporting
@@ -236,7 +246,7 @@ run_update() {
         # Success Path: Update Completed Successfully  
         # ========================================================================
         
-        log_scheduled INFO "$run_type update completed successfully"
+        echo "[INFO] $run_type update completed successfully"
         local end_time=$(date "+%Y-%m-%d %H:%M:%S")
         
         # Record successful completion in status file
@@ -253,14 +263,14 @@ run_update() {
         
         exit_code=$?
         local error_msg="Update script failed with exit code $exit_code"
-        log_scheduled ERROR "$error_msg"
+        echo "[ERROR] $error_msg"
         
         # Include the last 20 lines of script output for debugging
         # This helps identify specific repositories or operations that failed
         if [[ -f "$temp_log" ]]; then
-            log_scheduled ERROR "Script output (last 20 lines):"
+            echo "[ERROR] Script output (last 20 lines):"
             tail -20 "$temp_log" | while IFS= read -r line; do
-                log_scheduled ERROR "  $line"
+                echo "[ERROR]   $line"
             done
         fi
         
@@ -278,6 +288,12 @@ run_update() {
     
     # Remove temporary log file to prevent accumulation
     rm -f "$temp_log"
+    
+    # ============================================================================
+    # STEP 5: Clean up old logs by default
+    # ============================================================================
+    
+    clean_logs
     
     return $exit_code
 }
@@ -319,23 +335,50 @@ show_status() {
 # Install cron jobs
 install_cron() {
     local temp_cron="/tmp/crontab_backup_$$.txt"
+    local cron_wrapper="$SCRIPT_DIR/cron_wrapper.sh"
+    
+    # Validate that cron_wrapper.sh exists and is executable
+    if [[ ! -f "$cron_wrapper" ]]; then
+        echo "[ERROR] Required file not found: $cron_wrapper"
+        exit 1
+    fi
+    
+    if [[ ! -x "$cron_wrapper" ]]; then
+        echo "[ERROR] File is not executable: $cron_wrapper"
+        echo "[INFO] Run: chmod +x $cron_wrapper"
+        exit 1
+    fi
     
     # Backup existing crontab
     crontab -l > "$temp_cron" 2>/dev/null || touch "$temp_cron"
     
-    # Remove any existing git update entries
-    grep -v "scheduled_git_update\|update_local_repos" "$temp_cron" > "${temp_cron}.new" || touch "${temp_cron}.new"
+    # Remove any existing git update entries using the same unique marker approach as remove_cron
+    local unique_marker="# AUTO-GIT-SYNC-MARKER-$(basename "$SCRIPT_DIR")"
+    awk -v marker="$unique_marker" '
+    BEGIN { in_section = 0 }
+    $0 == marker { 
+        if (in_section == 0) {
+            in_section = 1
+            next
+        } else {
+            in_section = 0
+            next
+        }
+    }
+    in_section == 0 { print }
+    ' "$temp_cron" > "${temp_cron}.new"
     
-    # Add new cron entries
-    cat >> "${temp_cron}.new" << EOF
-
-# Automated Git Repository Updates
-# Primary run: 8:00 AM on weekdays (Mon-Fri)
-0 8 * * 1-5 $SCRIPT_DIR/scheduled_git_update.sh scheduled 2>&1 | logger -t git_update
-
-# Fallback run: 9:30 AM on weekdays (Mon-Fri) - only if 8 AM failed
-30 9 * * 1-5 $SCRIPT_DIR/scheduled_git_update.sh fallback 2>&1 | logger -t git_update
-EOF
+    # Add new cron entries using schedules from env file or defaults
+    # Using unique markers for reliable removal
+    echo "" >> "${temp_cron}.new"
+    echo "$unique_marker" >> "${temp_cron}.new"
+    echo "# Automated Git Repository Updates" >> "${temp_cron}.new"
+    echo "# Primary run: Configured via PRIMARY_CRON_SCHEDULE" >> "${temp_cron}.new"
+    echo "${PRIMARY_CRON_SCHEDULE} $SCRIPT_DIR/cron_wrapper.sh scheduled 2>&1 | logger -t git_update" >> "${temp_cron}.new"
+    echo "" >> "${temp_cron}.new"
+    echo "# Fallback run: Configured via FALLBACK_CRON_SCHEDULE" >> "${temp_cron}.new"
+    echo "${FALLBACK_CRON_SCHEDULE} $SCRIPT_DIR/cron_wrapper.sh fallback 2>&1 | logger -t git_update" >> "${temp_cron}.new"
+    echo "$unique_marker" >> "${temp_cron}.new"
     
     # Install new crontab
     crontab "${temp_cron}.new"
@@ -343,9 +386,9 @@ EOF
     # Cleanup
     rm -f "$temp_cron" "${temp_cron}.new"
     
-    log_scheduled INFO "Cron jobs installed successfully"
-    log_scheduled INFO "Primary run: 8:00 AM weekdays"
-    log_scheduled INFO "Fallback run: 9:30 AM weekdays (if needed)"
+    echo "[INFO] Cron jobs installed successfully"
+    echo "[INFO] Primary run: ${PRIMARY_CRON_SCHEDULE}"
+    echo "[INFO] Fallback run: ${FALLBACK_CRON_SCHEDULE}"
     
     echo "Installed cron schedule:"
     crontab -l | grep -A2 -B1 "Git Repository Updates"
@@ -354,10 +397,26 @@ EOF
 # Remove cron jobs
 remove_cron() {
     local temp_cron="/tmp/crontab_backup_$$.txt"
+    local unique_marker="# AUTO-GIT-SYNC-MARKER-$(basename "$SCRIPT_DIR")"
     
-    # Backup and filter existing crontab
+    # Backup existing crontab
     crontab -l > "$temp_cron" 2>/dev/null || touch "$temp_cron"
-    grep -v "scheduled_git_update\|update_local_repos\|Git Repository Updates" "$temp_cron" > "${temp_cron}.new" || touch "${temp_cron}.new"
+    
+    # Remove entire section between unique markers
+    # This approach is more reliable than pattern matching individual lines
+    awk -v marker="$unique_marker" '
+    BEGIN { in_section = 0 }
+    $0 == marker { 
+        if (in_section == 0) {
+            in_section = 1
+            next
+        } else {
+            in_section = 0
+            next
+        }
+    }
+    in_section == 0 { print }
+    ' "$temp_cron" > "${temp_cron}.new"
     
     # Install filtered crontab
     crontab "${temp_cron}.new"
@@ -365,7 +424,25 @@ remove_cron() {
     # Cleanup
     rm -f "$temp_cron" "${temp_cron}.new"
     
-    log_scheduled INFO "Cron jobs removed successfully"
+    echo "[INFO] Cron jobs removed successfully"
+    echo "[INFO] Current cron jobs after removal:"
+    crontab -l 2>/dev/null || echo "No cron jobs remaining"
+}
+
+# Clean up old log files
+clean_logs() {
+    local days="${1:-$LOG_RETENTION_DAYS}"  # Use env variable if not specified
+    if [[ "$days" -eq 0 ]]; then
+        echo "[INFO] Log cleanup disabled (days set to 0)"
+        return 0
+    fi
+    echo "[INFO] Cleaning up log files older than $days days in $LOG_DIR"
+    if [[ -d "$LOG_DIR" ]]; then
+        find "$LOG_DIR" -type f -name "git_update_*.log" -mtime +$days -exec rm -f {} \;
+        echo "[INFO] Log cleanup completed"
+    else
+        echo "[WARN] Log directory does not exist: $LOG_DIR"
+    fi
 }
 
 # Show usage
@@ -374,27 +451,32 @@ show_usage() {
 Usage: $0 [COMMAND]
 
 Commands:
-  scheduled         Run the scheduled update (8 AM run)
-  fallback          Run the fallback update (9:30 AM run, only if needed)
+  scheduled         Run the scheduled update (primary run)
+  fallback          Run the fallback update (secondary run, only if needed)
   status            Show status of recent runs and cron jobs
   install-cron      Install cron jobs for automated scheduling
   remove-cron       Remove cron jobs
+  clean-logs [DAYS] Clean up log files older than DAYS (default: 7, set to 0 to disable)
   test              Test run without scheduling
   help              Show this help message
 
 Environment Variables:
   CODE_DIR          Directory containing git repositories (default: ~/code)
   UPDATE_SCRIPT     Path to update script (default: auto-detect)
+  PRIMARY_CRON_SCHEDULE  Cron schedule for primary run (must be set in .env)
+  FALLBACK_CRON_SCHEDULE Cron schedule for fallback run (must be set in .env)
 
 Examples:
   $0 install-cron   # Set up automated daily updates
   $0 status         # Check recent update history
   $0 test           # Run update immediately for testing
   $0 remove-cron    # Remove scheduled updates
+  $0 clean-logs 14  # Clean logs older than 14 days
+  $0 clean-logs 0   # Disable log cleanup
 
 Cron Schedule:
-  - Primary: 8:00 AM weekdays (Monday-Friday)
-  - Fallback: 9:30 AM weekdays (only if 8 AM run failed or didn't occur)
+  - Primary: Configured as ${PRIMARY_CRON_SCHEDULE}
+  - Fallback: Configured as ${FALLBACK_CRON_SCHEDULE}
 
 EOF
 }
@@ -407,6 +489,7 @@ cleanup() {
 # Main execution
 main() {
     local command="${1:-help}"
+    local arg1="${2:-}"
     
     # Set up cleanup
     trap cleanup EXIT INT TERM
@@ -441,6 +524,9 @@ main() {
             ;;
         "remove-cron")
             remove_cron
+            ;;
+        "clean-logs")
+            clean_logs "$arg1"
             ;;
         "help"|*)
             show_usage
