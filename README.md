@@ -1,16 +1,21 @@
 # Git Repository Sync Automation
 
-A comprehensive set of scripts to automatically sync all your local git repositories with their remote origins. Features parallel processing, intelligent fallback scheduling, and complete safety for your local changes.
+A comprehensive set of scripts to automatically sync all your local git repositories with their remote origins. Features intelligent fallback scheduling and complete safety for your local changes.
 
 ## 🚀 Quick Start
 
 ```bash
-# Clone or download this repository
+# Clone or download this repository (replace <your-repo-url> with the actual URL of this repository)
 git clone <your-repo-url> automated-git-sync
 cd automated-git-sync
 
+# Create your personal configuration file from the example
+cp .env.example .env
+# Edit .env to customize settings (required for cron schedules)
+nano .env
+
 # Test the scripts work
-./update_local_repos_parallel.sh --dry-run
+./update_local_repos.sh --dry-run
 
 # Set up automated daily updates
 ./scheduled_git_update.sh install-cron
@@ -18,11 +23,9 @@ cd automated-git-sync
 
 ## 📁 What's Included
 
-- **`update_git.sh`** - Original simple script (kept for reference)
 - **`update_local_repos.sh`** - Enhanced sequential update script
-- **`update_local_repos_parallel.sh`** - High-performance parallel processing script
 - **`scheduled_git_update.sh`** - Scheduling wrapper with fallback logic
-- **`update_local_repos_plan.md`** - Development planning document
+- **`.env.example`** - Example configuration file for customization
 
 ## 🛠 Script Overview
 
@@ -34,125 +37,92 @@ Safe, reliable updates one repository at a time.
 
 Options:
   -h, --help      Show help message
-  -v, --verbose   Enable detailed loggings
+  -v, --verbose   Enable detailed logging
   -n, --dry-run   Preview changes without making them
   -d, --dir DIR   Set code directory (default: ~/code)
 ```
 
-### 2. Parallel Script (`update_local_repos_parallel.sh`)
-High-performance updates with configurable parallel processing.
-
-```bash
-./update_local_repos_parallel.sh [OPTIONS]
-
-Options:
-  -h, --help        Show help message
-  -v, --verbose     Enable detailed logging
-  -n, --dry-run     Preview changes without making them
-  -d, --dir DIR     Set code directory (default: ~/code)
-  -b, --batch N     Set parallel jobs (default: 3)
-  -t, --timeout N   Set job timeout in seconds (default: 300)
-```
-
-### 3. Scheduled Script (`scheduled_git_update.sh`)
+### 2. Scheduled Script (`scheduled_git_update.sh`)
 Automation wrapper with intelligent scheduling and fallback logic.
 
 ```bash
 ./scheduled_git_update.sh [COMMAND]
 
 Commands:
-  scheduled       Run the scheduled update (8 AM run)
-  fallback        Run the fallback update (9:30 AM run, only if needed)
-  status          Show status of recent runs and cron jobs
-  install-cron    Install cron jobs for automated scheduling
-  remove-cron     Remove cron jobs
-  test            Test run without scheduling
-  help            Show help message
+  scheduled         Run the scheduled update (primary run)
+  fallback          Run the fallback update (only if primary run failed)
+  status            Show status of recent runs and cron jobs
+  install-cron      Install cron jobs for automated scheduling
+  remove-cron       Remove cron jobs
+  clean-logs [DAYS] Clean up log files older than DAYS (default: 7, set to 0 to disable)
+  help              Show help message
 ```
 
 ## ⚙️ Installation & Setup
 
 ### 1. Prerequisites
-**Bash 4.0+ Required:** The parallel script uses associative arrays (Bash 4.0+ feature)
-```bash
-# macOS users: Update from default Bash 3.2
-brew install bash
-sudo cp /opt/homebrew/bin/bash /bin/bash
-```
+No specific Bash version requirements beyond what's typically available on macOS or Linux.
 
 ### 2. Directory Setup
 Place this repository in your main code directory:
+
 ```bash
 cd ~/code
 git clone <your-repo-url> automated-git-sync
 ```
 
-### 3. Test the Scripts
-Always test before automating:
-```bash
-# Test parallel script (recommended)
-./automated-git-sync/update_local_repos_parallel.sh --dry-run --verbose
+### 3. Configuration
+Create and customize your personal configuration file. Cron schedules must be defined in the `.env` file for the setup to work.
 
+```bash
+# Copy the example to create your configuration file
+cp .env.example .env
+
+# Edit your .env file to customize settings
+nano .env
+```
+
+The `.env` file allows you to customize:
+- `CODE_DIR`: Directory containing your git repositories (required).
+- `PRIMARY_CRON_SCHEDULE`: Cron schedule for primary update run (required).
+- `FALLBACK_CRON_SCHEDULE`: Cron schedule for fallback update run (required).
+- `LOG_RETENTION_DAYS`: Number of days to keep logs, set to 0 to disable cleanup (required).
+- `SKIP_DIRS`: Directories to skip during updates.
+- `EXCLUDED_REPOS`: Specific repositories to exclude from updates.
+- `DEFAULT_BRANCHES`: Default branch names to check.
+- `VERBOSE` and `DRY_RUN`: Flags for logging and testing modes.
+- `REPO_COMMANDS`: Custom commands for specific repositories.
+
+### 4. Test the Scripts
+Always test before automating:
+
+```bash
 # Test sequential script
 ./automated-git-sync/update_local_repos.sh --dry-run --verbose
 ```
 
-### 4. Install Automated Scheduling
-Set up daily automated updates:
+### 5. Install Automated Scheduling
+Set up automated updates based on schedules defined in `.env`:
+
 ```bash
 ./automated-git-sync/scheduled_git_update.sh install-cron
 ```
 
-This creates:
-- **8:00 AM** (Mon-Fri): Primary update run
-- **9:30 AM** (Mon-Fri): Fallback run (only if 8 AM failed)
+## 🔧 Configuration Details
 
-## 🔧 Configuration
-
-### Environment Variables
-```bash
-# Directory containing git repositories
-export CODE_DIR="$HOME/code"
-
-# Enable verbose logging
-export VERBOSE="true"
-
-# Enable dry-run mode
-export DRY_RUN="true"
-
-# Parallel processing batch size
-export BATCH_SIZE="5"
-
-# Job timeout in seconds
-export JOB_TIMEOUT="300"
-
-# Directories to skip
-export SKIP_DIRS="logs .DS_Store node_modules"
-
-# Default branch names to check
-export DEFAULT_BRANCHES="main master develop"
-```
-
-### Repository-Specific Commands
-The scripts automatically run custom commands for specific repositories. Currently configured for:
-
-**Rails Applications** (e.g., `upstart_web`):
-- `bundle install` - Update gem dependencies
-- `rails db:migrate` - Run database migrations
-
-To add custom commands for other repositories, edit the `run_repo_commands()` function in the scripts:
+All configurations are managed through the `.env` file. Here's how to define custom commands for repositories and cron schedules:
 
 ```bash
-case "$repo_name" in
-    "my_node_app")
-        npm install
-        npm run build
-        ;;
-    "my_python_app")
-        pip install -r requirements.txt
-        python manage.py migrate
-        ;;
-esac
+# In your .env file
+# Format for custom commands: REPO_COMMANDS='repo_name1:command1 && command2;repo_name2:command3 && command4'
+REPO_COMMANDS='upstart_web:bundle install && bundle exec rails db:migrate'
+
+# Exclude specific repositories from updates
+EXCLUDED_REPOS="repo1 repo2"
+
+# Define cron schedules (required)
+PRIMARY_CRON_SCHEDULE="15 9 * * 1-5"  # Primary schedule (weekdays)
+FALLBACK_CRON_SCHEDULE="30 9 * * 1-5" # Fallback schedule (weekdays)
 ```
 
 ## 🔒 Safety Features
@@ -206,33 +176,6 @@ jq '.' automated-git-sync/logs/git_update_status.json
 
 ### Common Issues
 
-**Bash version compatibility (macOS):**
-The scripts require Bash 4.0+ for associative arrays. macOS ships with Bash 3.2 by default.
-
-```bash
-# Check your bash version
-/bin/bash --version
-
-# If you see version 3.2, install newer bash via Homebrew
-brew install bash
-
-# Update system bash (recommended approach)
-sudo cp /opt/homebrew/bin/bash /bin/bash
-
-# Verify the fix
-/bin/bash --version  # Should show 5.x
-```
-
-**Associative array errors:**
-If you see `declare: -A: invalid option`, you're using old Bash:
-```bash
-# Error indicates Bash < 4.0
-./update_local_repos_parallel.sh: line 29: declare: -A: invalid option
-
-# Fix by updating bash (see above) or run with explicit path
-/opt/homebrew/bin/bash ./update_local_repos_parallel.sh
-```
-
 **Script not executable:**
 ```bash
 chmod +x automated-git-sync/*.sh
@@ -269,7 +212,7 @@ git stash drop stash@{0}   # Clean up after resolving
 
 **Enable verbose mode:**
 ```bash
-VERBOSE=true ./update_local_repos_parallel.sh
+VERBOSE=true ./update_local_repos.sh
 ```
 
 **Test individual repository:**
@@ -285,43 +228,21 @@ git stash list
 git ls-remote --heads origin
 ```
 
-**Parallel script appears to do nothing:**
-The parallel script runs background jobs that complete quickly. This is normal:
-```bash
-# You'll see minimal output like this:
-[MAIN] [INFO] Starting parallel git repository update script
-[MAIN] [INFO] Working directory: /Users/you/code  
-[MAIN] [INFO] Batch size: 3 parallel jobs
-[MAIN] [INFO] Cleaning up parallel jobs...
-
-# To see actual work being done:
-./update_local_repos_parallel.sh --verbose
-
-# Check the log file for details:
-cat logs/git_update_*.log | tail -50
-
-# Verify repositories were processed:
-./update_local_repos_parallel.sh --dry-run --verbose | head -20
-```
-
 ## 🔄 Scheduling Details
 
 ### Cron Schedule
-The automated scheduling uses two cron entries:
+The automated scheduling uses two cron entries defined in your `.env` file:
 
 ```bash
-# Primary run: 8:00 AM on weekdays (Mon-Fri)
-0 8 * * 1-5 /Users/you/code/automated-git-sync/scheduled_git_update.sh scheduled
-
-# Fallback run: 9:30 AM on weekdays (only if 8 AM failed)
-30 9 * * 1-5 /Users/you/code/automated-git-sync/scheduled_git_update.sh fallback
+# Primary run as defined in PRIMARY_CRON_SCHEDULE
+# Fallback run as defined in FALLBACK_CRON_SCHEDULE
 ```
 
 ### Fallback Logic
-The 9:30 AM run checks if the 8 AM run was successful:
-- ✅ **8 AM succeeded** → 9:30 AM skips (no duplicate work)
-- ❌ **8 AM failed** → 9:30 AM runs (ensures daily sync)
-- ⏰ **8 AM didn't run** → 9:30 AM runs (system was off/asleep)
+The fallback run checks if the primary run was successful:
+- ✅ **Primary succeeded** → Fallback skips (no duplicate work)
+- ❌ **Primary failed** → Fallback runs (ensures daily sync)
+- ⏰ **Primary didn't run** → Fallback runs (system was off/asleep)
 
 ### Notifications
 On macOS, the script sends system notifications:
@@ -332,17 +253,14 @@ On macOS, the script sends system notifications:
 
 ### Manual Operations
 ```bash
-# Quick sync with parallel processing
-./update_local_repos_parallel.sh
-
 # Conservative sync with detailed output
 ./update_local_repos.sh --verbose
 
 # Preview what would happen
-./update_local_repos_parallel.sh --dry-run
+./update_local_repos.sh --dry-run
 
-# Custom directory and batch size
-CODE_DIR=/path/to/repos ./update_local_repos_parallel.sh --batch 5
+# Custom directory
+CODE_DIR=/path/to/repos ./update_local_repos.sh
 
 # Test specific settings
 SKIP_DIRS="logs private" ./update_local_repos.sh --verbose
@@ -356,24 +274,11 @@ SKIP_DIRS="logs private" ./update_local_repos.sh --verbose
 # Check automation status
 ./scheduled_git_update.sh status
 
-# Test without scheduling
-./scheduled_git_update.sh test
-
 # Remove automation
 ./scheduled_git_update.sh remove-cron
-```
 
-### Integration Examples
-```bash
-# In CI/CD pipeline
-if ./update_local_repos.sh --dry-run; then
-    echo "All repos can be updated safely"
-else
-    echo "Some repos need attention"
-fi
-
-# With notification integration (Slack, etc.)
-./scheduled_git_update.sh scheduled && curl -X POST -H 'Content-type: application/json' --data '{"text":"Git sync completed"}' YOUR_SLACK_WEBHOOK
+# Clean old logs manually with custom retention
+./scheduled_git_update.sh clean-logs 14
 ```
 
 ## 🤝 Contributing
@@ -397,6 +302,6 @@ MIT License - feel free to adapt for your own use.
 - **Monitor initially**: Check logs daily for the first week after setup
 - **Backup strategy**: This syncs with remotes but isn't a backup solution
 - **Network awareness**: Scripts handle network issues gracefully but won't retry indefinitely
-- **Customize freely**: Add your own repository-specific commands as needed
+- **Customize freely**: Add your own repository-specific commands in `.env`
 
 **Happy automated syncing! 🚀**

@@ -2,15 +2,6 @@
 
 set -euo pipefail
 
-# Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CODE_DIR="${CODE_DIR:-$HOME/code}"
-LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/logs/git_update_$(date +%Y%m%d_%H%M%S).log}"
-SKIP_DIRS="${SKIP_DIRS:-logs .DS_Store automated-git-sync}"
-DEFAULT_BRANCHES="${DEFAULT_BRANCHES:-main master}"
-VERBOSE="${VERBOSE:-false}"
-DRY_RUN="${DRY_RUN:-false}"
-
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -39,6 +30,40 @@ log() {
         echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
     fi
 }
+
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
+
+# Source configuration file if it exists
+if [[ -f "$CONFIG_FILE" ]]; then
+    log INFO "Loading configurations from $CONFIG_FILE"
+    source "$CONFIG_FILE"
+else
+    log ERROR "Configuration file not found: $CONFIG_FILE. Please create an .env file with required settings."
+    exit 1
+fi
+
+# Check for required CODE_DIR variable
+if [[ -z "$CODE_DIR" ]]; then
+    log ERROR "CODE_DIR is not defined in $CONFIG_FILE. Please set this variable."
+    exit 1
+fi
+
+# Check for required LOG_RETENTION_DAYS variable
+if [[ -z "$LOG_RETENTION_DAYS" ]]; then
+    log ERROR "LOG_RETENTION_DAYS is not defined in $CONFIG_FILE. Please set this variable."
+    exit 1
+fi
+
+# Set defaults for optional configurations
+SKIP_DIRS="${SKIP_DIRS:-logs .DS_Store automated-git-sync}"
+EXCLUDED_REPOS="${EXCLUDED_REPOS:-}"
+DEFAULT_BRANCHES="${DEFAULT_BRANCHES:-main master}"
+VERBOSE="${VERBOSE:-false}"
+DRY_RUN="${DRY_RUN:-false}"
+
+LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/logs/git_update_$(date +%Y%m%d_%H%M%S).log}"
 
 # Error handling
 handle_error() {
@@ -298,10 +323,80 @@ safe_stash_pop() {
     fi
 }
 
+# Validate command string for basic safety
+validate_command() {
+    local cmd="$1"
+    
+    # Check for potentially dangerous patterns
+    if [[ "$cmd" =~ \$\(|\`|eval|exec|source|sudo|su|rm\s+-rf|rm\s+/|mkfs|dd\s+if= ]]; then
+        log ERROR "  Command contains potentially dangerous patterns: $cmd"
+        return 1
+    fi
+    
+    # Check for shell operators that require bash -c (not supported by array execution)
+    if [[ "$cmd" =~ &&|\|\||;|\||>|< ]]; then
+        log WARN "  Command contains shell operators and requires bash -c execution: $cmd"
+        return 2  # Special return code for shell operators
+    fi
+    
+    # Check for excessive complexity that might indicate injection attempts
+    local special_count=$(echo "$cmd" | grep -o '[;&|><$`]' | wc -l)
+    if [[ $special_count -gt 5 ]]; then
+        log ERROR "  Command is too complex for safe execution: $cmd"
+        return 1
+    fi
+    
+    return 0  # Command appears safe for array execution
+}
+
 # Execute repository-specific commands
 run_repo_commands() {
     local repo_name="$1"
     
+    # Check for custom commands defined in env file using the scalable format
+    if [[ -n "${REPO_COMMANDS:-}" ]]; then
+        # Split REPO_COMMANDS into individual repository entries
+        IFS=';' read -ra repo_entries <<< "$REPO_COMMANDS"
+        for entry in "${repo_entries[@]}"; do
+            IFS=':' read -ra repo_cmd <<< "$entry"
+            if [[ "${repo_cmd[0]}" == "$repo_name" && -n "${repo_cmd[1]}" ]]; then
+                log INFO "  Running custom commands for $repo_name from env file..."
+                
+                # Validate command for basic safety
+                validate_command "${repo_cmd[1]}"
+                local validation_result=$?
+                
+                if [[ $validation_result -eq 1 ]]; then
+                    log ERROR "  Potentially unsafe command detected for $repo_name: ${repo_cmd[1]}"
+                    log ERROR "  Skipping custom commands for security reasons"
+                    return 1
+                fi
+                
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    log DRY "Would run: ${repo_cmd[1]}"
+                else
+                    log DEBUG "  Running: ${repo_cmd[1]}"
+                    
+                    if [[ $validation_result -eq 2 ]]; then
+                        # Command contains shell operators, use bash -c with additional safety
+                        log WARN "  Using shell execution for complex command (extra caution advised)"
+                        if ! timeout 300 env -i PATH="$PATH" HOME="$HOME" PWD="$(pwd)" bash -c "${repo_cmd[1]}" > /dev/null 2>&1; then
+                            log WARN "  Custom commands failed for $repo_name, continuing anyway"
+                        fi
+                    else
+                        # Simple command, use safer array execution
+                        read -a cmd_array <<< "${repo_cmd[1]}"
+                        if ! timeout 300 env -i PATH="$PATH" HOME="$HOME" PWD="$(pwd)" "${cmd_array[@]}" > /dev/null 2>&1; then
+                            log WARN "  Custom commands failed for $repo_name, continuing anyway"
+                        fi
+                    fi
+                fi
+                return 0
+            fi
+        done
+    fi
+    
+    # Fallback to hardcoded logic if no env variable is set or no matching repo found
     case "$repo_name" in
         "upstart_web")
             log INFO "  Running Rails-specific commands..."
@@ -619,6 +714,20 @@ main() {
         if [[ "$skip" == "true" ]]; then
             log DEBUG "Skipping directory: $dir_name"
             skipped_repos=$((skipped_repos + 1))
+            continue
+        fi
+        
+        # Skip repositories in excluded list
+        for excluded_repo in $EXCLUDED_REPOS; do
+            if [[ "$dir_name" == "$excluded_repo" ]]; then
+                log INFO "Skipping excluded repository: $dir_name"
+                skipped_repos=$((skipped_repos + 1))
+                skip=true
+                break
+            fi
+        done
+        
+        if [[ "$skip" == "true" ]]; then
             continue
         fi
         
