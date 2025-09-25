@@ -1,6 +1,6 @@
 # Git Repository Sync Automation
 
-A comprehensive set of scripts to automatically sync all your local git repositories with their remote origins. Features intelligent fallback scheduling and complete safety for your local changes.
+A comprehensive set of scripts to automatically sync all your local git repositories with their remote origins. Features intelligent fallback scheduling, macOS LaunchAgent integration, and complete safety for your local changes.
 
 ## 🚀 Quick Start
 
@@ -11,14 +11,17 @@ cd automated-git-sync
 
 # Create your personal configuration file from the example
 cp .env.example .env
-# Edit .env to customize settings (required for cron schedules)
+# Edit .env to customize settings (required)
 nano .env
+
+# Set up SSH for automation (ensures background processes can authenticate)
+./setup_ssh_for_automation.sh
 
 # Test the scripts work
 ./update_local_repos.sh --dry-run
 
-# Set up automated daily updates
-./scheduled_git_update.sh install-cron
+# Set up automated daily updates (uses macOS LaunchAgent)
+./switch_to_launchd.sh
 ```
 
 ## 📁 What's Included
@@ -51,17 +54,31 @@ Automation wrapper with intelligent scheduling and fallback logic.
 Commands:
   scheduled         Run the scheduled update (primary run)
   fallback          Run the fallback update (only if primary run failed)
-  status            Show status of recent runs and cron jobs
-  install-cron      Install cron jobs for automated scheduling
-  remove-cron       Remove cron jobs
+  status            Show status of recent runs and scheduled jobs
   clean-logs [DAYS] Clean up log files older than DAYS (default: 7, set to 0 to disable)
   help              Show help message
+```
+
+### 3. Setup Scripts
+Helper scripts for initial configuration:
+
+```bash
+# Set up SSH configuration for automation
+./setup_ssh_for_automation.sh
+
+# Switch from cron to launchd (better for macOS)
+./switch_to_launchd.sh
+
+# Create launchd jobs manually
+./create_launchd_job.sh
 ```
 
 ## ⚙️ Installation & Setup
 
 ### 1. Prerequisites
-No specific Bash version requirements beyond what's typically available on macOS or Linux.
+- macOS or Linux with Bash
+- Git repositories using SSH authentication
+- SSH key without passphrase (for automation) OR working SSH agent
 
 ### 2. Directory Setup
 Place this repository in your main code directory:
@@ -102,10 +119,14 @@ Always test before automating:
 ```
 
 ### 5. Install Automated Scheduling
-Set up automated updates based on schedules defined in `.env`:
+Set up automated updates using macOS LaunchAgent (better than cron):
 
 ```bash
-./automated-git-sync/scheduled_git_update.sh install-cron
+# One-time setup: Configure SSH for automation
+./automated-git-sync/setup_ssh_for_automation.sh
+
+# Install LaunchAgent jobs based on schedules defined in .env
+./automated-git-sync/switch_to_launchd.sh
 ```
 
 ## 🔧 Configuration Details
@@ -120,9 +141,9 @@ REPO_COMMANDS='upstart_web:bundle install && bundle exec rails db:migrate'
 # Exclude specific repositories from updates
 EXCLUDED_REPOS="repo1 repo2"
 
-# Define cron schedules (required)
-PRIMARY_CRON_SCHEDULE="15 9 * * 1-5"  # Primary schedule (weekdays)
-FALLBACK_CRON_SCHEDULE="30 9 * * 1-5" # Fallback schedule (weekdays)
+# Define schedules (required) - uses cron format for compatibility
+PRIMARY_CRON_SCHEDULE="15 9 * * 1-5"  # Primary schedule (weekdays at 9:15 AM)
+FALLBACK_CRON_SCHEDULE="30 9 * * 1-5" # Fallback schedule (weekdays at 9:30 AM)
 ```
 
 ## 🔒 Safety Features
@@ -154,11 +175,17 @@ FALLBACK_CRON_SCHEDULE="30 9 * * 1-5" # Fallback schedule (weekdays)
 ```
 
 ### Log Files
-All logs are stored in `automated-git-sync/logs/`:
+**Script logs** are stored in `automated-git-sync/logs/`:
 - `git_update_YYYYMMDD_HHMMSS.log` - Individual run logs
 - `scheduled_updates.log` - Scheduling activity log
 - `git_update_status.json` - Latest run status (JSON format)
 - `git_update.lock` - Lock file (active runs only)
+
+**LaunchAgent logs** are stored in `~/Library/Logs/`:
+- `git-update-scheduled.log` - Primary job output
+- `git-update-fallback.log` - Fallback job output
+- `git-update-scheduled-error.log` - Primary job errors
+- `git-update-fallback-error.log` - Fallback job errors
 
 ### Viewing Logs
 ```bash
@@ -167,6 +194,9 @@ tail -f automated-git-sync/logs/scheduled_updates.log
 
 # Latest full run log
 ls -t automated-git-sync/logs/git_update_*.log | head -1 | xargs cat
+
+# LaunchAgent job logs
+tail -f ~/Library/Logs/git-update-scheduled.log
 
 # Status in readable format (requires jq)
 jq '.' automated-git-sync/logs/git_update_status.json
@@ -181,13 +211,17 @@ jq '.' automated-git-sync/logs/git_update_status.json
 chmod +x automated-git-sync/*.sh
 ```
 
-**Cron jobs not running:**
+**LaunchAgent jobs not running:**
 ```bash
-# Check if cron is running
-sudo launchctl list | grep cron
+# Check if jobs are loaded
+launchctl list | grep git-update
 
-# Check cron logs
-tail -f /var/log/system.log | grep cron
+# Check job status and logs
+./scheduled_git_update.sh status
+tail -f ~/Library/Logs/git-update-scheduled.log
+
+# Manually trigger a job for testing
+launchctl start com.user.git-update-scheduled
 ```
 
 **Repository authentication issues:**
@@ -195,7 +229,13 @@ tail -f /var/log/system.log | grep cron
 # Test SSH keys
 ssh -T git@github.com
 
-# Or use personal access tokens for HTTPS
+# Re-run SSH setup for automation
+./setup_ssh_for_automation.sh
+
+# Check SSH agent debug log
+tail -f ~/.ssh/cron_ssh_debug.log
+
+# For HTTPS authentication, use personal access tokens
 git config --global credential.helper store
 ```
 
@@ -230,13 +270,19 @@ git ls-remote --heads origin
 
 ## 🔄 Scheduling Details
 
-### Cron Schedule
-The automated scheduling uses two cron entries defined in your `.env` file:
+### LaunchAgent Schedule
+The automated scheduling uses macOS LaunchAgent with two jobs defined in your `.env` file:
 
 ```bash
-# Primary run as defined in PRIMARY_CRON_SCHEDULE
-# Fallback run as defined in FALLBACK_CRON_SCHEDULE
+# Primary run: Based on PRIMARY_CRON_SCHEDULE (converted to LaunchAgent format)
+# Fallback run: Based on FALLBACK_CRON_SCHEDULE (converted to LaunchAgent format)
 ```
+
+**Benefits of LaunchAgent over Cron:**
+- Better SSH authentication support
+- Improved macOS integration
+- More reliable user environment
+- Better logging and error handling
 
 ### Fallback Logic
 The fallback run checks if the primary run was successful:
@@ -268,14 +314,19 @@ SKIP_DIRS="logs private" ./update_local_repos.sh --verbose
 
 ### Automation Management
 ```bash
-# Set up automation
-./scheduled_git_update.sh install-cron
+# Set up automation (LaunchAgent)
+./switch_to_launchd.sh
 
 # Check automation status
 ./scheduled_git_update.sh status
+launchctl list | grep git-update
 
 # Remove automation
-./scheduled_git_update.sh remove-cron
+launchctl unload ~/Library/LaunchAgents/com.user.git-update-*.plist
+
+# Manually trigger jobs
+launchctl start com.user.git-update-scheduled
+launchctl start com.user.git-update-fallback
 
 # Clean old logs manually with custom retention
 ./scheduled_git_update.sh clean-logs 14

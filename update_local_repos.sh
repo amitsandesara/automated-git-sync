@@ -25,8 +25,8 @@ log() {
         DRY)   echo -e "${CYAN}[DRY-RUN]${NC} $message" ;;
     esac
     
-    # Also log to file if log directory exists
-    if [[ -d "$(dirname "$LOG_FILE")" ]]; then
+    # Also log to file if log directory exists and LOG_FILE is defined
+    if [[ -n "${LOG_FILE:-}" && -d "$(dirname "$LOG_FILE")" ]]; then
         echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
     fi
 }
@@ -328,13 +328,17 @@ validate_command() {
     local cmd="$1"
     
     # Check for potentially dangerous patterns
-    if [[ "$cmd" =~ \$\(|\`|eval|exec|source|sudo|su|rm\s+-rf|rm\s+/|mkfs|dd\s+if= ]]; then
-        log ERROR "  Command contains potentially dangerous patterns: $cmd"
-        return 1
+    # Allow 'bundle exec' but block standalone 'exec' and other dangerous commands
+    if [[ "$cmd" =~ \$\(|\`|eval|^exec[[:space:]]|[[:space:]]exec[[:space:]]|source|sudo|su|rm\s+-rf|rm\s+/|mkfs|dd\s+if= ]]; then
+        # Exception: allow 'bundle exec' patterns
+        if [[ ! "$cmd" =~ bundle[[:space:]]+exec ]]; then
+            log ERROR "  Command contains potentially dangerous patterns: $cmd"
+            return 1
+        fi
     fi
     
     # Check for shell operators that require bash -c (not supported by array execution)
-    if [[ "$cmd" =~ &&|\|\||;|\||>|< ]]; then
+    if [[ "$cmd" =~ (\&\&|\|\||;|\||>|<) ]]; then
         log WARN "  Command contains shell operators and requires bash -c execution: $cmd"
         return 2  # Special return code for shell operators
     fi

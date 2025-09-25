@@ -239,6 +239,10 @@ run_update() {
     echo "[INFO] Executing git update script..."
     
     # Run the actual update script
+    # Ensure SSH environment is available for the update script
+    export SSH_AUTH_SOCK
+    export SSH_AGENT_PID
+    
     # Capture both stdout and stderr for complete error reporting
     if "$UPDATE_SCRIPT" > "$temp_log" 2>&1; then
         
@@ -402,8 +406,7 @@ remove_cron() {
     # Backup existing crontab
     crontab -l > "$temp_cron" 2>/dev/null || touch "$temp_cron"
     
-    # Remove entire section between unique markers
-    # This approach is more reliable than pattern matching individual lines
+    # First, try to remove entries using unique markers (new approach)
     awk -v marker="$unique_marker" '
     BEGIN { in_section = 0 }
     $0 == marker { 
@@ -418,11 +421,25 @@ remove_cron() {
     in_section == 0 { print }
     ' "$temp_cron" > "${temp_cron}.new"
     
+    # Check if the marker-based approach found anything to remove
+    # If the processed file is the same as the original, try legacy removal
+    if cmp -s "$temp_cron" "${temp_cron}.new"; then
+        echo "[INFO] No marker-based entries found, checking for legacy entries..."
+        grep -v -E "(# Automated Git Repository Updates|# Primary run:|# Fallback run:|cron_wrapper\.sh.*scheduled|cron_wrapper\.sh.*fallback)" "$temp_cron" > "${temp_cron}.legacy" 2>/dev/null || touch "${temp_cron}.legacy"
+        
+        # Use the legacy result if it's different from the original
+        if ! cmp -s "$temp_cron" "${temp_cron}.legacy"; then
+            mv "${temp_cron}.legacy" "${temp_cron}.new"
+        else
+            rm -f "${temp_cron}.legacy"
+        fi
+    fi
+    
     # Install filtered crontab
     crontab "${temp_cron}.new"
     
     # Cleanup
-    rm -f "$temp_cron" "${temp_cron}.new"
+    rm -f "$temp_cron" "${temp_cron}.new" "${temp_cron}.legacy"
     
     echo "[INFO] Cron jobs removed successfully"
     echo "[INFO] Current cron jobs after removal:"
