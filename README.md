@@ -12,8 +12,8 @@ cd automated-git-sync
 # Test the scripts work
 ./update_local_repos_parallel.sh --dry-run
 
-# Set up automated daily updates
-./scheduled_git_update.sh install-cron
+# Set up automated daily updates (using launchd - macOS native)
+./scheduled_git_update.sh install-launchd
 ```
 
 ## 📁 What's Included
@@ -55,19 +55,21 @@ Options:
 ```
 
 ### 3. Scheduled Script (`scheduled_git_update.sh`)
-Automation wrapper with intelligent scheduling and fallback logic.
+Automation wrapper with intelligent scheduling and fallback logic. Supports both launchd (recommended for macOS) and cron.
 
 ```bash
 ./scheduled_git_update.sh [COMMAND]
 
 Commands:
-  scheduled       Run the scheduled update (8 AM run)
-  fallback        Run the fallback update (9:30 AM run, only if needed)
-  status          Show status of recent runs and cron jobs
-  install-cron    Install cron jobs for automated scheduling
-  remove-cron     Remove cron jobs
-  test            Test run without scheduling
-  help            Show help message
+  scheduled         Run the scheduled update (9:30 AM run)
+  fallback          Run the fallback update (10:00 AM run, only if needed)
+  status            Show status of recent runs and schedulers
+  install-launchd   Install launchd agents (macOS native - recommended)
+  remove-launchd    Remove launchd agents
+  install-cron      Install cron jobs (legacy)
+  remove-cron       Remove cron jobs
+  test              Test run without scheduling
+  help              Show help message
 ```
 
 ## ⚙️ Installation & Setup
@@ -98,14 +100,22 @@ Always test before automating:
 ```
 
 ### 4. Install Automated Scheduling
-Set up daily automated updates:
+Set up daily automated updates using launchd (macOS native, recommended):
+```bash
+./automated-git-sync/scheduled_git_update.sh install-launchd
+```
+
+Or using cron (legacy alternative):
 ```bash
 ./automated-git-sync/scheduled_git_update.sh install-cron
 ```
 
 This creates:
-- **8:00 AM** (Mon-Fri): Primary update run
-- **9:30 AM** (Mon-Fri): Fallback run (only if 8 AM failed)
+- **9:30 AM** (Mon-Fri): Primary update run
+- **10:00 AM** (Mon-Fri): Fallback run (only if 9:30 AM failed)
+- **On Wake/Login**: Runs after system wake or login (throttled to max once per 4 hours)
+
+**Why launchd?** Launchd is macOS's native scheduler with better integration and the ability to trigger on system events like wake/login.
 
 ## 🔧 Configuration
 
@@ -238,6 +248,30 @@ If you see `declare: -A: invalid option`, you're using old Bash:
 chmod +x automated-git-sync/*.sh
 ```
 
+**Launchd agents not running:**
+```bash
+# Check if agents are loaded
+launchctl list | grep git-sync
+
+# View agent status
+launchctl list com.user.git-sync-scheduled
+launchctl list com.user.git-sync-fallback
+launchctl list com.user.git-sync-on-wake
+
+# Check agent logs
+cat ~/code/automated-git-sync/logs/launchd_scheduled_stdout.log
+cat ~/code/automated-git-sync/logs/launchd_scheduled_stderr.log
+cat ~/code/automated-git-sync/logs/launchd_on_wake_stdout.log
+cat ~/code/automated-git-sync/logs/launchd_on_wake_stderr.log
+
+# Manually reload agents
+launchctl unload ~/Library/LaunchAgents/com.user.git-sync-scheduled.plist
+launchctl load ~/Library/LaunchAgents/com.user.git-sync-scheduled.plist
+
+# Test on-wake agent immediately (to test without waiting for wake)
+launchctl start com.user.git-sync-on-wake
+```
+
 **Cron jobs not running:**
 ```bash
 # Check if cron is running
@@ -306,22 +340,40 @@ cat logs/git_update_*.log | tail -50
 
 ## 🔄 Scheduling Details
 
-### Cron Schedule
-The automated scheduling uses two cron entries:
+### Launchd Schedule (Recommended for macOS)
+The automated scheduling uses three launchd agents installed in `~/Library/LaunchAgents/`:
+
+- **`com.user.git-sync-scheduled.plist`** - Primary run at 9:30 AM Mon-Fri
+- **`com.user.git-sync-fallback.plist`** - Fallback run at 10:00 AM Mon-Fri
+- **`com.user.git-sync-on-wake.plist`** - Runs on system wake/login (throttled to max once per 4 hours)
+
+**Advantages of launchd:**
+- ✅ Runs on system wake/login to catch up after sleep
+- ✅ Native macOS integration with better logging
+- ✅ Throttling prevents excessive runs on multiple wake events
+- ✅ More reliable than cron on modern macOS
+
+**How it works:**
+1. **9:30 AM Mon-Fri**: Primary sync attempt
+2. **10:00 AM Mon-Fri**: Fallback if primary failed (intelligently skips if primary succeeded)
+3. **On wake/login**: Catches up if system was asleep during scheduled times (max once per 4 hours)
+
+### Cron Schedule (Legacy Alternative)
+If you prefer cron, it uses two cron entries:
 
 ```bash
-# Primary run: 8:00 AM on weekdays (Mon-Fri)
-0 8 * * 1-5 /Users/you/code/automated-git-sync/scheduled_git_update.sh scheduled
+# Primary run: 9:30 AM on weekdays (Mon-Fri)
+30 9 * * 1-5 /Users/you/code/automated-git-sync/scheduled_git_update.sh scheduled
 
-# Fallback run: 9:30 AM on weekdays (only if 8 AM failed)
-30 9 * * 1-5 /Users/you/code/automated-git-sync/scheduled_git_update.sh fallback
+# Fallback run: 10:00 AM on weekdays (only if 9:30 AM failed)
+0 10 * * 1-5 /Users/you/code/automated-git-sync/scheduled_git_update.sh fallback
 ```
 
 ### Fallback Logic
-The 9:30 AM run checks if the 8 AM run was successful:
-- ✅ **8 AM succeeded** → 9:30 AM skips (no duplicate work)
-- ❌ **8 AM failed** → 9:30 AM runs (ensures daily sync)
-- ⏰ **8 AM didn't run** → 9:30 AM runs (system was off/asleep)
+The 10:00 AM run checks if the 9:30 AM run was successful:
+- ✅ **9:30 AM succeeded** → 10:00 AM skips (no duplicate work)
+- ❌ **9:30 AM failed** → 10:00 AM runs (ensures daily sync)
+- ⏰ **9:30 AM didn't run** → 10:00 AM runs (system was off/asleep)
 
 ### Notifications
 On macOS, the script sends system notifications:
@@ -350,17 +402,20 @@ SKIP_DIRS="logs private" ./update_local_repos.sh --verbose
 
 ### Automation Management
 ```bash
-# Set up automation
+# Set up automation with launchd (recommended)
+./scheduled_git_update.sh install-launchd
+
+# Or set up with cron (legacy)
 ./scheduled_git_update.sh install-cron
 
-# Check automation status
+# Check automation status (shows both launchd and cron)
 ./scheduled_git_update.sh status
 
 # Test without scheduling
 ./scheduled_git_update.sh test
 
 # Remove automation
-./scheduled_git_update.sh remove-cron
+./scheduled_git_update.sh remove-launchd  # or remove-cron
 ```
 
 ### Integration Examples

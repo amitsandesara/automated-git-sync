@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.git-sync-on-wake</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>SCRIPT_DIR_PLACEHOLDER/scheduled_git_update.sh</string>
+        <string>scheduled</string>
+    </array>
+
+    <!-- Run on system load/login/wake -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Throttle: only allow running once per 4 hours (14400 seconds) -->
+    <!-- This prevents excessive runs if system wakes multiple times -->
+    <key>ThrottleInterval</key>
+    <integer>14400</integer>
+
+    <key>StandardOutPath</key>
+    <string>SCRIPT_DIR_PLACEHOLDER/logs/launchd_on_wake_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>SCRIPT_DIR_PLACEHOLDER/logs/launchd_on_wake_stderr.log</string>
+</dict>
+</plist>
