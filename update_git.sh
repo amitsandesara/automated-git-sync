@@ -44,12 +44,6 @@ for dir in */ ; do
 
     git pull
 
-    if [ "$dir" == "upstart_web/" ]
-    then
-        bundle install
-        rails db:migrate
-    fi
-
     git checkout $current_branch
     if [ "$local_changes" == true ]
     then

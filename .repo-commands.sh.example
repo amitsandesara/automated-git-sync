@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# Repository-Specific Commands Configuration
+#
+# This file allows you to define custom commands that should run after syncing
+# specific repositories. Copy this file to .repo-commands.sh and customize it.
+#
+# cp .repo-commands.sh.example .repo-commands.sh
+#
+# The .repo-commands.sh file is gitignored, so your personal configurations
+# won't be committed to the repository.
+
+# Function: run_repo_commands
+#
+# This function is called after successfully syncing each repository.
+# Add your repository-specific commands in the case statement below.
+#
+# Parameters:
+#   $1 - Repository name (directory name)
+#
+# Available variables:
+#   $DRY_RUN - Set to "true" if running in dry-run mode
+#   $repo_name - Name of the repository being processed
+#
+# Helper functions available:
+#   log INFO "message"   - Log informational message
+#   log DEBUG "message"  - Log debug message (only in verbose mode)
+#   log WARN "message"   - Log warning message
+#   log DRY "message"    - Log dry-run message
+
+run_repo_commands() {
+    local repo_name="$1"
+
+    case "$repo_name" in
+        # Example: Rails application
+        # "my_rails_app")
+        #     if command -v bundle > /dev/null 2>&1; then
+        #         if [[ "$DRY_RUN" == "true" ]]; then
+        #             log DRY "Would run: bundle install"
+        #         else
+        #             log DEBUG "  Running bundle install..."
+        #             if ! bundle install > /dev/null 2>&1; then
+        #                 log WARN "  Bundle install failed, continuing anyway"
+        #             fi
+        #         fi
+        #     fi
+        #
+        #     if command -v rails > /dev/null 2>&1; then
+        #         if [[ "$DRY_RUN" == "true" ]]; then
+        #             log DRY "Would run: rails db:migrate"
+        #         else
+        #             log DEBUG "  Running rails db:migrate..."
+        #             if ! rails db:migrate > /dev/null 2>&1; then
+        #                 log WARN "  Rails migration failed, continuing anyway"
+        #             fi
+        #         fi
+        #     fi
+        #     ;;
+
+        # Example: Node.js application
+        # "my_node_app")
+        #     if command -v npm > /dev/null 2>&1; then
+        #         if [[ "$DRY_RUN" == "true" ]]; then
+        #             log DRY "Would run: npm install"
+        #         else
+        #             log DEBUG "  Running npm install..."
+        #             npm install > /dev/null 2>&1 || log WARN "  npm install failed"
+        #         fi
+        #     fi
+        #     ;;
+
+        # Example: Python application
+        # "my_python_app")
+        #     if command -v pip > /dev/null 2>&1; then
+        #         if [[ "$DRY_RUN" == "true" ]]; then
+        #             log DRY "Would run: pip install -r requirements.txt"
+        #         else
+        #             log DEBUG "  Installing Python dependencies..."
+        #             pip install -q -r requirements.txt || log WARN "  pip install failed"
+        #         fi
+        #     fi
+        #     ;;
+
+        # Example: Go application
+        # "my_go_app")
+        #     if command -v go > /dev/null 2>&1; then
+        #         if [[ "$DRY_RUN" == "true" ]]; then
+        #             log DRY "Would run: go mod download"
+        #         else
+        #             log DEBUG "  Downloading Go modules..."
+        #             go mod download || log WARN "  go mod download failed"
+        #         fi
+        #     fi
+        #     ;;
+
+        # Default: No specific commands
+        *)
+            # Uncomment to see which repos have no custom commands
+            # log DEBUG "  No specific commands for repository: $repo_name"
+            ;;
+    esac
+}

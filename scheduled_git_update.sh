@@ -167,7 +167,7 @@ send_notification() {
 # or manually for testing.
 #
 # Parameters:
-#   $1: run_type - Type of run: "scheduled" (8 AM), "fallback" (9:30 AM), or "test"
+#   $1: run_type - Type of run: "scheduled" (9:30 AM), "fallback" (10:00 AM), or "test"
 #
 # Returns:
 #   0 on success, non-zero on failure
@@ -202,8 +202,8 @@ run_update() {
     # ============================================================================
     # STEP 2: Fallback Logic Implementation
     # ============================================================================
-    
-    # For fallback runs (9:30 AM), check if today's update already succeeded
+
+    # For fallback runs (10:00 AM), check if today's update already succeeded
     # This prevents duplicate work and unnecessary resource usage
     if [[ "$run_type" == "fallback" ]]; then
         if check_todays_status; then
@@ -213,7 +213,7 @@ run_update() {
             send_notification "skipped" "$skip_msg" "$run_type"
             return 0
         else
-            log_scheduled INFO "8 AM run failed or didn't complete - proceeding with fallback"
+            log_scheduled INFO "9:30 AM run failed or didn't complete - proceeding with fallback"
         fi
     fi
     
@@ -314,6 +314,30 @@ show_status() {
     
     echo -e "\nCron Status:"
     crontab -l 2>/dev/null | grep -E "(scheduled_git_update|update_local_repos)" || echo "No cron jobs found"
+
+    echo -e "\nLaunchd Status:"
+    local launch_agents_dir="$HOME/Library/LaunchAgents"
+    local agents_found=0
+
+    if [[ -f "$launch_agents_dir/com.user.git-sync-scheduled.plist" ]]; then
+        echo "✅ Scheduled agent installed (9:30 AM Mon-Fri)"
+        launchctl list | grep "com.user.git-sync-scheduled" || echo "   (not currently loaded)"
+        agents_found=1
+    fi
+    if [[ -f "$launch_agents_dir/com.user.git-sync-fallback.plist" ]]; then
+        echo "✅ Fallback agent installed (10:00 AM Mon-Fri)"
+        launchctl list | grep "com.user.git-sync-fallback" || echo "   (not currently loaded)"
+        agents_found=1
+    fi
+    if [[ -f "$launch_agents_dir/com.user.git-sync-on-wake.plist" ]]; then
+        echo "✅ On-wake agent installed (runs on system wake/login, max once per 4 hours)"
+        launchctl list | grep "com.user.git-sync-on-wake" || echo "   (not currently loaded)"
+        agents_found=1
+    fi
+
+    if [[ $agents_found -eq 0 ]]; then
+        echo "No launchd agents found"
+    fi
 }
 
 # Install cron jobs
@@ -330,11 +354,11 @@ install_cron() {
     cat >> "${temp_cron}.new" << EOF
 
 # Automated Git Repository Updates
-# Primary run: 8:00 AM on weekdays (Mon-Fri)
-0 8 * * 1-5 $SCRIPT_DIR/scheduled_git_update.sh scheduled 2>&1 | logger -t git_update
+# Primary run: 9:30 AM on weekdays (Mon-Fri)
+30 9 * * 1-5 $SCRIPT_DIR/scheduled_git_update.sh scheduled 2>&1 | logger -t git_update
 
-# Fallback run: 9:30 AM on weekdays (Mon-Fri) - only if 8 AM failed
-30 9 * * 1-5 $SCRIPT_DIR/scheduled_git_update.sh fallback 2>&1 | logger -t git_update
+# Fallback run: 10:00 AM on weekdays (Mon-Fri) - only if 9:30 AM failed
+0 10 * * 1-5 $SCRIPT_DIR/scheduled_git_update.sh fallback 2>&1 | logger -t git_update
 EOF
     
     # Install new crontab
@@ -344,8 +368,8 @@ EOF
     rm -f "$temp_cron" "${temp_cron}.new"
     
     log_scheduled INFO "Cron jobs installed successfully"
-    log_scheduled INFO "Primary run: 8:00 AM weekdays"
-    log_scheduled INFO "Fallback run: 9:30 AM weekdays (if needed)"
+    log_scheduled INFO "Primary run: 9:30 AM weekdays"
+    log_scheduled INFO "Fallback run: 10:00 AM weekdays (if needed)"
     
     echo "Installed cron schedule:"
     crontab -l | grep -A2 -B1 "Git Repository Updates"
@@ -354,18 +378,112 @@ EOF
 # Remove cron jobs
 remove_cron() {
     local temp_cron="/tmp/crontab_backup_$$.txt"
-    
+
     # Backup and filter existing crontab
     crontab -l > "$temp_cron" 2>/dev/null || touch "$temp_cron"
     grep -v "scheduled_git_update\|update_local_repos\|Git Repository Updates" "$temp_cron" > "${temp_cron}.new" || touch "${temp_cron}.new"
-    
+
     # Install filtered crontab
     crontab "${temp_cron}.new"
-    
+
     # Cleanup
     rm -f "$temp_cron" "${temp_cron}.new"
-    
+
     log_scheduled INFO "Cron jobs removed successfully"
+}
+
+# Install launchd agents (macOS native scheduler)
+install_launchd() {
+    local launch_agents_dir="$HOME/Library/LaunchAgents"
+    local scheduled_plist="com.user.git-sync-scheduled.plist"
+    local fallback_plist="com.user.git-sync-fallback.plist"
+    local on_wake_plist="com.user.git-sync-on-wake.plist"
+    local scheduled_template="$SCRIPT_DIR/${scheduled_plist}.template"
+    local fallback_template="$SCRIPT_DIR/${fallback_plist}.template"
+    local on_wake_template="$SCRIPT_DIR/${on_wake_plist}.template"
+
+    # Create LaunchAgents directory if it doesn't exist
+    mkdir -p "$launch_agents_dir"
+
+    # Check if templates exist
+    if [[ ! -f "$scheduled_template" ]] || [[ ! -f "$fallback_template" ]] || [[ ! -f "$on_wake_template" ]]; then
+        log_scheduled ERROR "Launchd template files not found in $SCRIPT_DIR"
+        return 1
+    fi
+
+    # Unload existing agents if they're loaded
+    launchctl unload "$launch_agents_dir/$scheduled_plist" 2>/dev/null || true
+    launchctl unload "$launch_agents_dir/$fallback_plist" 2>/dev/null || true
+    launchctl unload "$launch_agents_dir/$on_wake_plist" 2>/dev/null || true
+
+    # Create plist files from templates, replacing placeholder with actual script directory
+    sed "s|SCRIPT_DIR_PLACEHOLDER|$SCRIPT_DIR|g" "$scheduled_template" > "$launch_agents_dir/$scheduled_plist"
+    sed "s|SCRIPT_DIR_PLACEHOLDER|$SCRIPT_DIR|g" "$fallback_template" > "$launch_agents_dir/$fallback_plist"
+    sed "s|SCRIPT_DIR_PLACEHOLDER|$SCRIPT_DIR|g" "$on_wake_template" > "$launch_agents_dir/$on_wake_plist"
+
+    # Load the agents
+    if launchctl load "$launch_agents_dir/$scheduled_plist" 2>&1; then
+        log_scheduled INFO "Scheduled agent loaded successfully"
+    else
+        log_scheduled ERROR "Failed to load scheduled agent"
+        return 1
+    fi
+
+    if launchctl load "$launch_agents_dir/$fallback_plist" 2>&1; then
+        log_scheduled INFO "Fallback agent loaded successfully"
+    else
+        log_scheduled ERROR "Failed to load fallback agent"
+        return 1
+    fi
+
+    if launchctl load "$launch_agents_dir/$on_wake_plist" 2>&1; then
+        log_scheduled INFO "On-wake agent loaded successfully"
+    else
+        log_scheduled ERROR "Failed to load on-wake agent"
+        return 1
+    fi
+
+    log_scheduled INFO "Launchd agents installed successfully"
+    log_scheduled INFO "Primary run: 9:30 AM weekdays"
+    log_scheduled INFO "Fallback run: 10:00 AM weekdays (if needed)"
+    log_scheduled INFO "On-wake run: After system login/wake (throttled to once per 4 hours)"
+    log_scheduled INFO "Plist files location: $launch_agents_dir"
+
+    echo "Installed launchd agents:"
+    echo "  - $scheduled_plist (9:30 AM Mon-Fri)"
+    echo "  - $fallback_plist (10:00 AM Mon-Fri)"
+    echo "  - $on_wake_plist (on system wake/login, max once per 4 hours)"
+}
+
+# Remove launchd agents
+remove_launchd() {
+    local launch_agents_dir="$HOME/Library/LaunchAgents"
+    local scheduled_plist="com.user.git-sync-scheduled.plist"
+    local fallback_plist="com.user.git-sync-fallback.plist"
+    local on_wake_plist="com.user.git-sync-on-wake.plist"
+
+    # Unload and remove scheduled agent
+    if [[ -f "$launch_agents_dir/$scheduled_plist" ]]; then
+        launchctl unload "$launch_agents_dir/$scheduled_plist" 2>/dev/null || true
+        rm -f "$launch_agents_dir/$scheduled_plist"
+        log_scheduled INFO "Removed scheduled agent"
+    fi
+
+    # Unload and remove fallback agent
+    if [[ -f "$launch_agents_dir/$fallback_plist" ]]; then
+        launchctl unload "$launch_agents_dir/$fallback_plist" 2>/dev/null || true
+        rm -f "$launch_agents_dir/$fallback_plist"
+        log_scheduled INFO "Removed fallback agent"
+    fi
+
+    # Unload and remove on-wake agent
+    if [[ -f "$launch_agents_dir/$on_wake_plist" ]]; then
+        launchctl unload "$launch_agents_dir/$on_wake_plist" 2>/dev/null || true
+        rm -f "$launch_agents_dir/$on_wake_plist"
+        log_scheduled INFO "Removed on-wake agent"
+    fi
+
+    log_scheduled INFO "Launchd agents removed successfully"
 }
 
 # Show usage
@@ -374,10 +492,12 @@ show_usage() {
 Usage: $0 [COMMAND]
 
 Commands:
-  scheduled         Run the scheduled update (8 AM run)
-  fallback          Run the fallback update (9:30 AM run, only if needed)
-  status            Show status of recent runs and cron jobs
-  install-cron      Install cron jobs for automated scheduling
+  scheduled         Run the scheduled update (9:30 AM run)
+  fallback          Run the fallback update (10:00 AM run, only if needed)
+  status            Show status of recent runs and schedulers
+  install-launchd   Install launchd agents for automated scheduling (macOS native - recommended)
+  remove-launchd    Remove launchd agents
+  install-cron      Install cron jobs for automated scheduling (legacy)
   remove-cron       Remove cron jobs
   test              Test run without scheduling
   help              Show this help message
@@ -387,14 +507,18 @@ Environment Variables:
   UPDATE_SCRIPT     Path to update script (default: auto-detect)
 
 Examples:
-  $0 install-cron   # Set up automated daily updates
-  $0 status         # Check recent update history
-  $0 test           # Run update immediately for testing
-  $0 remove-cron    # Remove scheduled updates
+  $0 install-launchd  # Set up automated daily updates (recommended for macOS)
+  $0 status           # Check recent update history and scheduler status
+  $0 test             # Run update immediately for testing
+  $0 remove-launchd   # Remove scheduled updates
 
-Cron Schedule:
-  - Primary: 8:00 AM weekdays (Monday-Friday)
-  - Fallback: 9:30 AM weekdays (only if 8 AM run failed or didn't occur)
+Schedule (Launchd/Cron):
+  - Primary: 9:30 AM weekdays (Monday-Friday)
+  - Fallback: 10:00 AM weekdays (only if 9:30 AM run failed or didn't occur)
+
+Launchd vs Cron:
+  - Launchd (recommended): macOS native scheduler, runs missed jobs on wake
+  - Cron (legacy): Traditional Unix scheduler, may skip jobs if system is asleep
 
 EOF
 }
@@ -435,6 +559,12 @@ main() {
             ;;
         "status")
             show_status
+            ;;
+        "install-launchd")
+            install_launchd
+            ;;
+        "remove-launchd")
+            remove_launchd
             ;;
         "install-cron")
             install_cron
