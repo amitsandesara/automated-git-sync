@@ -6,7 +6,7 @@ A comprehensive set of scripts to automatically sync all your local git reposito
 
 ```bash
 # Clone or download this repository
-git clone <your-repo-url> automated-git-sync
+git clone https://github.com/amitsandesara/automated-git-sync.git
 cd automated-git-sync
 
 # Test the scripts work
@@ -21,8 +21,8 @@ cd automated-git-sync
 - **`update_git.sh`** - Original simple script (kept for reference)
 - **`update_local_repos.sh`** - Enhanced sequential update script
 - **`update_local_repos_parallel.sh`** - High-performance parallel processing script
-- **`scheduled_git_update.sh`** - Scheduling wrapper with fallback logic
-- **`update_local_repos_plan.md`** - Development planning document
+- **`scheduled_git_update.sh`** - Scheduling wrapper with fallback logic and launchd support
+- **`com.user.git-sync-*.plist.template`** - Launchd agent templates for macOS scheduling
 
 ## 🛠 Script Overview
 
@@ -86,7 +86,7 @@ sudo cp /opt/homebrew/bin/bash /bin/bash
 Place this repository in your main code directory:
 ```bash
 cd ~/code
-git clone <your-repo-url> automated-git-sync
+git clone https://github.com/amitsandesara/automated-git-sync.git
 ```
 
 ### 3. Test the Scripts
@@ -113,9 +113,9 @@ Or using cron (legacy alternative):
 This creates:
 - **9:30 AM** (Mon-Fri): Primary update run
 - **10:00 AM** (Mon-Fri): Fallback run (only if 9:30 AM failed)
-- **On Wake/Login**: Runs after system wake or login (throttled to max once per 4 hours)
+- **On Wake/Login**: Runs after system wake or login (launchd only, throttled to max once per 4 hours)
 
-**Why launchd?** Launchd is macOS's native scheduler with better integration and the ability to trigger on system events like wake/login.
+**Why launchd?** Launchd is macOS's native scheduler with better integration and the ability to trigger on system events like wake/login. Cron only supports time-based scheduling.
 
 ## 🔧 Configuration
 
@@ -199,6 +199,10 @@ All logs are stored in `automated-git-sync/logs/`:
 - `scheduled_updates.log` - Scheduling activity log
 - `git_update_status.json` - Latest run status (JSON format)
 - `git_update.lock` - Lock file (active runs only)
+- `launchd_scheduled_stdout.log` - Launchd scheduled runs output (9:30 AM)
+- `launchd_fallback_stdout.log` - Launchd fallback runs output (10:00 AM)
+- `launchd_on_wake_stdout.log` - Launchd on-wake runs output
+- `launchd_*_stderr.log` - Error logs for each launchd agent
 
 ### Viewing Logs
 ```bash
@@ -443,8 +447,6 @@ This is a personal automation tool, but improvements are welcome:
 ## 📝 License
 
 MIT License - feel free to adapt for your own use.
-
----
 
 ## ⭐ Pro Tips
 
