@@ -13,6 +13,13 @@ DRY_RUN="${DRY_RUN:-false}"
 BATCH_SIZE="${BATCH_SIZE:-3}"
 JOB_TIMEOUT="${JOB_TIMEOUT:-300}"
 
+# Source repository-specific commands if config file exists
+REPO_COMMANDS_FILE="$SCRIPT_DIR/.repo-commands.sh"
+if [[ -f "$REPO_COMMANDS_FILE" ]]; then
+    # shellcheck source=.repo-commands.sh
+    source "$REPO_COMMANDS_FILE"
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -215,42 +222,11 @@ safe_stash_pop() {
 }
 
 # Execute repository-specific commands
+# Repository-specific commands function
+# This default implementation does nothing - users can override by creating .repo-commands.sh
 run_repo_commands() {
     local repo_name="$1"
-    
-    case "$repo_name" in
-        "upstart_web")
-            log_sync INFO "$repo_name" "  Running Rails-specific commands..."
-            if command -v bundle > /dev/null 2>&1; then
-                if [[ "$DRY_RUN" == "true" ]]; then
-                    log_sync DRY "$repo_name" "Would run: bundle install"
-                else
-                    log_sync DEBUG "$repo_name" "  Running bundle install..."
-                    if ! timeout 120 bundle install > /dev/null 2>&1; then
-                        log_sync WARN "$repo_name" "  Bundle install failed or timed out, continuing anyway"
-                    fi
-                fi
-            else
-                log_sync WARN "$repo_name" "  Bundle command not found, skipping bundle install"
-            fi
-            
-            if command -v rails > /dev/null 2>&1; then
-                if [[ "$DRY_RUN" == "true" ]]; then
-                    log_sync DRY "$repo_name" "Would run: rails db:migrate"
-                else
-                    log_sync DEBUG "$repo_name" "  Running rails db:migrate..."
-                    if ! timeout 60 rails db:migrate > /dev/null 2>&1; then
-                        log_sync WARN "$repo_name" "  Rails migration failed or timed out, continuing anyway"
-                    fi
-                fi
-            else
-                log_sync WARN "$repo_name" "  Rails command not found, skipping db:migrate"
-            fi
-            ;;
-        *)
-            log_sync DEBUG "$repo_name" "  No specific commands for repository: $repo_name"
-            ;;
-    esac
+    log_sync DEBUG "$repo_name" "  No specific commands configured for repository: $repo_name"
 }
 
 # Process a single repository (runs in parallel)

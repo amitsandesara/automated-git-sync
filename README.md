@@ -23,6 +23,7 @@ cd automated-git-sync
 - **`update_local_repos_parallel.sh`** - High-performance parallel processing script
 - **`scheduled_git_update.sh`** - Scheduling wrapper with fallback logic and launchd support
 - **`com.user.git-sync-*.plist.template`** - Launchd agent templates for macOS scheduling
+- **`.repo-commands.sh.example`** - Template for repository-specific commands (copy to `.repo-commands.sh` to use)
 
 ## 🛠 Script Overview
 
@@ -144,26 +145,45 @@ export DEFAULT_BRANCHES="main master develop"
 ```
 
 ### Repository-Specific Commands
-The scripts automatically run custom commands for specific repositories. Currently configured for:
 
-**Rails Applications** (e.g., `upstart_web`):
-- `bundle install` - Update gem dependencies
-- `rails db:migrate` - Run database migrations
+You can configure custom commands to run after syncing specific repositories. This is useful for:
+- Installing dependencies (`npm install`, `bundle install`, `pip install`)
+- Running database migrations
+- Building assets
+- Any other post-sync tasks
 
-To add custom commands for other repositories, edit the `run_repo_commands()` function in the scripts:
+**Setup Instructions:**
 
-```bash
-case "$repo_name" in
-    "my_node_app")
-        npm install
-        npm run build
-        ;;
-    "my_python_app")
-        pip install -r requirements.txt
-        python manage.py migrate
-        ;;
-esac
-```
+1. **Copy the example config file:**
+   ```bash
+   cp .repo-commands.sh.example .repo-commands.sh
+   ```
+
+2. **Edit `.repo-commands.sh` to add your repository-specific commands:**
+   ```bash
+   run_repo_commands() {
+       local repo_name="$1"
+
+       case "$repo_name" in
+           "my_rails_app")
+               if [[ "$DRY_RUN" != "true" ]]; then
+                   bundle install > /dev/null 2>&1 || log WARN "Bundle install failed"
+                   rails db:migrate > /dev/null 2>&1 || log WARN "Migration failed"
+               fi
+               ;;
+           "my_node_app")
+               if [[ "$DRY_RUN" != "true" ]]; then
+                   npm install > /dev/null 2>&1 || log WARN "npm install failed"
+               fi
+               ;;
+       esac
+   }
+   ```
+
+**Important Notes:**
+- The `.repo-commands.sh` file is gitignored and won't be committed
+- See `.repo-commands.sh.example` for detailed examples and available helper functions
+- Use `log INFO "message"` for sequential script, `log_sync INFO "$repo_name" "message"` for parallel script
 
 ## 🔒 Safety Features
 

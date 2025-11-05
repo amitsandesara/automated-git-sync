@@ -25,3 +25,6 @@ logs/
 
 # Claude Code files
 .claude/
+
+# User-specific repository commands
+.repo-commands.sh

@@ -11,6 +11,13 @@ DEFAULT_BRANCHES="${DEFAULT_BRANCHES:-main master}"
 VERBOSE="${VERBOSE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 
+# Source repository-specific commands if config file exists
+REPO_COMMANDS_FILE="$SCRIPT_DIR/.repo-commands.sh"
+if [[ -f "$REPO_COMMANDS_FILE" ]]; then
+    # shellcheck source=.repo-commands.sh
+    source "$REPO_COMMANDS_FILE"
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -299,42 +306,11 @@ safe_stash_pop() {
 }
 
 # Execute repository-specific commands
+# Repository-specific commands function
+# This default implementation does nothing - users can override by creating .repo-commands.sh
 run_repo_commands() {
     local repo_name="$1"
-    
-    case "$repo_name" in
-        "upstart_web")
-            log INFO "  Running Rails-specific commands..."
-            if command -v bundle > /dev/null 2>&1; then
-                if [[ "$DRY_RUN" == "true" ]]; then
-                    log DRY "Would run: bundle install"
-                else
-                    log DEBUG "  Running bundle install..."
-                    if ! bundle install > /dev/null 2>&1; then
-                        log WARN "  Bundle install failed, continuing anyway"
-                    fi
-                fi
-            else
-                log WARN "  Bundle command not found, skipping bundle install"
-            fi
-            
-            if command -v rails > /dev/null 2>&1; then
-                if [[ "$DRY_RUN" == "true" ]]; then
-                    log DRY "Would run: rails db:migrate"
-                else
-                    log DEBUG "  Running rails db:migrate..."
-                    if ! rails db:migrate > /dev/null 2>&1; then
-                        log WARN "  Rails migration failed, continuing anyway"
-                    fi
-                fi
-            else
-                log WARN "  Rails command not found, skipping db:migrate"
-            fi
-            ;;
-        *)
-            log DEBUG "  No specific commands for repository: $repo_name"
-            ;;
-    esac
+    log DEBUG "  No specific commands configured for repository: $repo_name"
 }
 
 # Process a single repository
