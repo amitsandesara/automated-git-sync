@@ -27,9 +27,6 @@
 #   log DEBUG "message"  - Log debug message (only in verbose mode)
 #   log WARN "message"   - Log warning message
 #   log DRY "message"    - Log dry-run message
-#
-# Note: For parallel script, use log_sync instead of log:
-#   log_sync INFO "$repo_name" "message"
 
 run_repo_commands() {
     local repo_name="$1"

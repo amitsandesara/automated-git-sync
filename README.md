@@ -1,6 +1,6 @@
 # Git Repository Sync Automation
 
-A comprehensive set of scripts to automatically sync all your local git repositories with their remote origins. Features parallel processing, intelligent fallback scheduling, and complete safety for your local changes.
+A comprehensive script to automatically sync all your local git repositories with their remote origins. Features intelligent fallback scheduling, complete safety for your local changes, and launchd integration for macOS.
 
 ## 🚀 Quick Start
 
@@ -9,8 +9,8 @@ A comprehensive set of scripts to automatically sync all your local git reposito
 git clone https://github.com/amitsandesara/automated-git-sync.git
 cd automated-git-sync
 
-# Test the scripts work
-./update_local_repos_parallel.sh --dry-run
+# Test the script works
+./update_local_repos.sh --dry-run
 
 # Set up automated daily updates (using launchd - macOS native)
 ./scheduled_git_update.sh install-launchd
@@ -19,43 +19,27 @@ cd automated-git-sync
 ## 📁 What's Included
 
 - **`update_git.sh`** - Original simple script (kept for reference)
-- **`update_local_repos.sh`** - Enhanced sequential update script
-- **`update_local_repos_parallel.sh`** - High-performance parallel processing script
+- **`update_local_repos.sh`** - Enhanced repository update script with safety features
 - **`scheduled_git_update.sh`** - Scheduling wrapper with fallback logic and launchd support
 - **`com.user.git-sync-*.plist.template`** - Launchd agent templates for macOS scheduling
 - **`.repo-commands.sh.example`** - Template for repository-specific commands (copy to `.repo-commands.sh` to use)
 
 ## 🛠 Script Overview
 
-### 1. Sequential Script (`update_local_repos.sh`)
-Safe, reliable updates one repository at a time.
+### 1. Main Update Script (`update_local_repos.sh`)
+Safe, reliable updates one repository at a time with comprehensive safety features.
 
 ```bash
 ./update_local_repos.sh [OPTIONS]
 
 Options:
   -h, --help      Show help message
-  -v, --verbose   Enable detailed loggings
+  -v, --verbose   Enable detailed logging
   -n, --dry-run   Preview changes without making them
   -d, --dir DIR   Set code directory (default: ~/code)
 ```
 
-### 2. Parallel Script (`update_local_repos_parallel.sh`)
-High-performance updates with configurable parallel processing.
-
-```bash
-./update_local_repos_parallel.sh [OPTIONS]
-
-Options:
-  -h, --help        Show help message
-  -v, --verbose     Enable detailed logging
-  -n, --dry-run     Preview changes without making them
-  -d, --dir DIR     Set code directory (default: ~/code)
-  -b, --batch N     Set parallel jobs (default: 3)
-  -t, --timeout N   Set job timeout in seconds (default: 300)
-```
-
-### 3. Scheduled Script (`scheduled_git_update.sh`)
+### 2. Scheduled Script (`scheduled_git_update.sh`)
 Automation wrapper with intelligent scheduling and fallback logic. Supports both launchd (recommended for macOS) and cron.
 
 ```bash
@@ -75,32 +59,20 @@ Commands:
 
 ## ⚙️ Installation & Setup
 
-### 1. Prerequisites
-**Bash 4.0+ Required:** The parallel script uses associative arrays (Bash 4.0+ feature)
-```bash
-# macOS users: Update from default Bash 3.2
-brew install bash
-sudo cp /opt/homebrew/bin/bash /bin/bash
-```
-
-### 2. Directory Setup
+### 1. Directory Setup
 Place this repository in your main code directory:
 ```bash
 cd ~/code
 git clone https://github.com/amitsandesara/automated-git-sync.git
 ```
 
-### 3. Test the Scripts
+### 2. Test the Script
 Always test before automating:
 ```bash
-# Test parallel script (recommended)
-./automated-git-sync/update_local_repos_parallel.sh --dry-run --verbose
-
-# Test sequential script
 ./automated-git-sync/update_local_repos.sh --dry-run --verbose
 ```
 
-### 4. Install Automated Scheduling
+### 3. Install Automated Scheduling
 Set up daily automated updates using launchd (macOS native, recommended):
 ```bash
 ./automated-git-sync/scheduled_git_update.sh install-launchd
@@ -130,12 +102,6 @@ export VERBOSE="true"
 
 # Enable dry-run mode
 export DRY_RUN="true"
-
-# Parallel processing batch size
-export BATCH_SIZE="5"
-
-# Job timeout in seconds
-export JOB_TIMEOUT="300"
 
 # Directories to skip
 export SKIP_DIRS="logs .DS_Store node_modules"
@@ -183,7 +149,7 @@ You can configure custom commands to run after syncing specific repositories. Th
 **Important Notes:**
 - The `.repo-commands.sh` file is gitignored and won't be committed
 - See `.repo-commands.sh.example` for detailed examples and available helper functions
-- Use `log INFO "message"` for sequential script, `log_sync INFO "$repo_name" "message"` for parallel script
+- Use `log INFO "message"` to output log messages
 
 ## 🔒 Safety Features
 
@@ -239,33 +205,6 @@ jq '.' automated-git-sync/logs/git_update_status.json
 ## 🚨 Troubleshooting
 
 ### Common Issues
-
-**Bash version compatibility (macOS):**
-The scripts require Bash 4.0+ for associative arrays. macOS ships with Bash 3.2 by default.
-
-```bash
-# Check your bash version
-/bin/bash --version
-
-# If you see version 3.2, install newer bash via Homebrew
-brew install bash
-
-# Update system bash (recommended approach)
-sudo cp /opt/homebrew/bin/bash /bin/bash
-
-# Verify the fix
-/bin/bash --version  # Should show 5.x
-```
-
-**Associative array errors:**
-If you see `declare: -A: invalid option`, you're using old Bash:
-```bash
-# Error indicates Bash < 4.0
-./update_local_repos_parallel.sh: line 29: declare: -A: invalid option
-
-# Fix by updating bash (see above) or run with explicit path
-/opt/homebrew/bin/bash ./update_local_repos_parallel.sh
-```
 
 **Script not executable:**
 ```bash
@@ -327,7 +266,7 @@ git stash drop stash@{0}   # Clean up after resolving
 
 **Enable verbose mode:**
 ```bash
-VERBOSE=true ./update_local_repos_parallel.sh
+VERBOSE=true ./update_local_repos.sh
 ```
 
 **Test individual repository:**
@@ -341,25 +280,6 @@ git stash list
 **Check network connectivity:**
 ```bash
 git ls-remote --heads origin
-```
-
-**Parallel script appears to do nothing:**
-The parallel script runs background jobs that complete quickly. This is normal:
-```bash
-# You'll see minimal output like this:
-[MAIN] [INFO] Starting parallel git repository update script
-[MAIN] [INFO] Working directory: /Users/you/code  
-[MAIN] [INFO] Batch size: 3 parallel jobs
-[MAIN] [INFO] Cleaning up parallel jobs...
-
-# To see actual work being done:
-./update_local_repos_parallel.sh --verbose
-
-# Check the log file for details:
-cat logs/git_update_*.log | tail -50
-
-# Verify repositories were processed:
-./update_local_repos_parallel.sh --dry-run --verbose | head -20
 ```
 
 ## 🔄 Scheduling Details
@@ -408,17 +328,17 @@ On macOS, the script sends system notifications:
 
 ### Manual Operations
 ```bash
-# Quick sync with parallel processing
-./update_local_repos_parallel.sh
+# Run sync now
+./update_local_repos.sh
 
-# Conservative sync with detailed output
+# Run with detailed output
 ./update_local_repos.sh --verbose
 
 # Preview what would happen
-./update_local_repos_parallel.sh --dry-run
+./update_local_repos.sh --dry-run
 
-# Custom directory and batch size
-CODE_DIR=/path/to/repos ./update_local_repos_parallel.sh --batch 5
+# Custom directory
+CODE_DIR=/path/to/repos ./update_local_repos.sh
 
 # Test specific settings
 SKIP_DIRS="logs private" ./update_local_repos.sh --verbose
