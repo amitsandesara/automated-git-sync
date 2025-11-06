@@ -5,11 +5,20 @@
     <key>Label</key>
     <string>com.user.git-sync-fallback</string>
 
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
     <key>ProgramArguments</key>
     <array>
         <string>SCRIPT_DIR_PLACEHOLDER/scheduled_git_update.sh</string>
         <string>fallback</string>
     </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+    </dict>
 
     <key>StartCalendarInterval</key>
     <array>

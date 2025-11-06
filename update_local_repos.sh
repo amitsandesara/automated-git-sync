@@ -308,10 +308,13 @@ safe_stash_pop() {
 # Execute repository-specific commands
 # Repository-specific commands function
 # This default implementation does nothing - users can override by creating .repo-commands.sh
-run_repo_commands() {
-    local repo_name="$1"
-    log DEBUG "  No specific commands configured for repository: $repo_name"
-}
+# Only define default if not already defined by .repo-commands.sh
+if ! declare -f run_repo_commands > /dev/null 2>&1; then
+    run_repo_commands() {
+        local repo_name="$1"
+        log DEBUG "  No specific commands configured for repository: $repo_name"
+    }
+fi
 
 # Process a single repository
 # This function performs the complete git sync workflow for one repository
